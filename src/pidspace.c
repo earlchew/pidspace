@@ -1474,11 +1474,11 @@ run_child(struct Tty *aTty, struct Child *aChild)
 int
 main(int argc, char **argv)
 {
-    /* PRIVLEGED */ struct Service service;
-    /* PRIVLEGED */
-    /* PRIVLEGED */ pid_t childPid = privileged(&service, argc, argv);
-    /* PRIVLEGED */
-    /* PRIVLEGED */ drop_privileges();
+    /* PRIVILEGED */ struct Service service;
+    /* PRIVILEGED */
+    /* PRIVILEGED */ pid_t childPid = privileged(&service, argc, argv);
+    /* PRIVILEGED */
+    /* PRIVILEGED */ drop_privileges();
 
     /* All the code beyond thing point runs at reduced privilege.
      * Explicitly verify that the process is not running with
