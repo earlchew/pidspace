@@ -263,12 +263,20 @@ verify_privileged_role()
     if (!capSet)
         die("Unable to query process capabilities");
 
-    if (cap_get_flag(capSet, CAP_SYS_ADMIN, CAP_EFFECTIVE, &capValue))
+    if (cap_get_flag(capSet, CAP_SYS_ADMIN, CAP_PERMITTED, &capValue))
         die("Unable to query process CAP_SYS_ADMIN");
 
-    cap_free(capSet);
+    if (CAP_CLEAR != capValue) {
 
-    if (CAP_CLEAR == capValue) {
+        cap_value_t setCaps[] = { CAP_SYS_ADMIN };
+
+        if (cap_set_flag(
+                    capSet, CAP_EFFECTIVE,
+                    ARRAYSIZE(setCaps), setCaps, CAP_SET))
+            die("Unable to set process CAP_SYS_ADMIN");
+
+    } else {
+
         uid_t euid = geteuid();
 
         if (0 != euid) {
@@ -281,6 +289,8 @@ verify_privileged_role()
                 die("Expected CAP_SYS_ADMIN or root instead of uid %d", euid);
         }
     }
+
+    cap_free(capSet);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1307,10 +1317,17 @@ drop_privileges()
     if (!capSet)
         die("Unable to query process capabilities");
 
-    if (cap_set_flag(capSet, CAP_SYS_ADMIN, CAP_PERMITTED, CAP_CLEAR))
-        die("Unable to clear process CAP_SYS_ADMIN");
+    cap_value_t clearCaps[] = { CAP_SYS_ADMIN };
+    cap_flag_t capSets[] = { CAP_EFFECTIVE, CAP_PERMITTED };
 
-    if (cap_set_proc(&capSet))
+    for (unsigned cx = 0; cx < ARRAYSIZE(capSets); ++cx) {
+        if (cap_set_flag(
+                    capSet, capSets[cx],
+                    ARRAYSIZE(clearCaps), clearCaps, CAP_CLEAR))
+            die("Unable to clear process CAP_SYS_ADMIN");
+    }
+
+    if (cap_set_proc(capSet))
         die("Unable to configure process capabilities");
 
     cap_free(capSet);
