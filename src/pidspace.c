@@ -1254,8 +1254,8 @@ drop_privileges()
      * signal to this process running as pid 1.
      */
 
-    gid_t gid = getgid();
-    uid_t uid = getuid();
+    const gid_t gid = getgid();
+    const uid_t uid = getuid();
 
     if (setresgid(gid, gid, gid))
         die("Unable to set gid");
@@ -1263,14 +1263,41 @@ drop_privileges()
     if (setresuid(uid, uid, uid))
         die("Unable to set uid");
 
-    gid_t fsgid = setfsgid(-1);
-    uid_t fsuid = setfsuid(-1);
+    uid_t ruid_, * const ruid = &ruid_;
+    uid_t euid_, * const euid = &euid_;
+    uid_t suid_, * const suid = &suid_;
 
-    if (fsgid != gid)
-        die("Unexpected filesystem gid %d", fsgid);
+    if (getresuid(ruid, euid, suid))
+        die("Unable to query process uid");
 
-    if (fsuid != uid)
+    if (uid != *ruid || uid != *euid || uid != *suid)
+        die("Mismatched uid %d ruid %d euid %d suid %d",
+            uid, ruid, euid, suid);
+
+    gid_t rgid_, * const rgid = &rgid_;
+    gid_t egid_, * const egid = &egid_;
+    gid_t sgid_, * const sgid = &sgid_;
+
+    if (getresgid(rgid, egid, sgid))
+        die("Unable to query process gid");
+
+    if (gid != *rgid || gid != *egid || gid != *sgid)
+        die("Mismatched gid %d rgid %d egid %d sgid %d",
+            gid, *rgid, *egid, *sgid);
+
+    gid_t fsgid_ = setfsgid(-1), * const fsgid = &fsgid_;
+    uid_t fsuid_ = setfsuid(-1), * const fsuid = &fsuid_;
+
+    if (gid != *fsgid)
+        die("Unexpected filesystem gid %d", *fsgid);
+
+    if (uid != *fsuid)
         die("Unexpected filesystem uid %d", fsuid);
+
+    if (uid) {
+       if (!setreuid(-1, 0) || !setregid(-1, 0))
+           die("Unexpected privilege escalation");
+    }
 
     /* Now that privileges have been dropped, allow user core dumps which
      * have the side-effect of reconfiguring the ownership of /proc/pid.
