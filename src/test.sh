@@ -222,6 +222,24 @@ test_pidspace_false()
     expect 42 = "$RC"
 }
 
+test_pidspace_parented()
+{
+    local PARENT=$BASHPID
+
+    ( exec_pidspace --ppid "$PARENT" -- sh -c 'exec true ; sleep 59') &
+    local RC=0
+    wait $! || RC=$?
+    expect 0 = "$RC"
+}
+
+test_pidspace_orphaned()
+{
+    ( exec_pidspace --ppid 1 -- sh -c 'exec true ; sleep 59') &
+    local RC=0
+    wait $! || RC=$?
+    expect 137 = "$RC"
+}
+
 test_pidspace_kill_grandchild()
 {
     local SIGNAL=$1 ; shift
@@ -345,6 +363,9 @@ run_tests()
 
     run test_pidspace_true
     run test_pidspace_false
+
+    run test_pidspace_parented
+    run test_pidspace_orphaned
 
     run test_pidspace_hierarchy
     run test_pidspace_devnull --exec
