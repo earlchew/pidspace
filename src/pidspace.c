@@ -1254,14 +1254,52 @@ run_init_pid1(int aChildFd, pid_t aChildPid, int aTtyFd)
 static void
 drop_privileges()
 {
-    /* Drop privileges, but not capabilities, after PDEATHSIG is configured,
-     * by forcing real, effective, and saved uids and gids to match the values
-     * of the user invoking the process.
+    /* Drop privileges, after PDEATHSIG is configured, to avoid
+     * taking unintended actions.
      *
-     * The supplementary group list inherited by the process remains unchanged.
+     * Drop CAP_SYS_ADMIN capability from the permitted and
+     * effective sets. Leave the capability in the other
+     * sets, in particular the inheritable set, so that later
+     * execve(2) can raise privileges again.
+     */
+
+    cap_t capSet = cap_get_proc();
+    if (!capSet)
+        die("Unable to query process capabilities");
+
+    cap_value_t clearCaps[] = { CAP_SYS_ADMIN };
+    cap_flag_t capSets[] = { CAP_EFFECTIVE, CAP_PERMITTED };
+
+    for (unsigned cx = 0; cx < ARRAYSIZE(capSets); ++cx) {
+        if (cap_set_flag(
+                    capSet, capSets[cx],
+                    ARRAYSIZE(clearCaps), clearCaps, CAP_CLEAR))
+            die("Unable to clear process CAP_SYS_ADMIN");
+    }
+
+    if (cap_set_proc(capSet))
+        die("Unable to configure process capabilities");
+
+    for (unsigned cx = 0; cx < ARRAYSIZE(capSets); ++cx) {
+        if (cap_set_flag(
+                    capSet, capSets[cx],
+                    ARRAYSIZE(clearCaps), clearCaps, CAP_SET))
+            die("Unable to clear process CAP_SYS_ADMIN");
+    }
+
+    errno = 0;
+    if (!cap_set_proc(capSet))
+        die("Unexpected escalation of process capabilies");
+
+    cap_free(capSet);
+
+    /* Forcing real, effective, and saved uids and gids to match the values
+     * of the user invoking the process.
      *
      * This is important to allow an unprivileged kill(2) to deliver a
      * signal to this process running as pid 1.
+     *
+     * The supplementary group list inherited by the process remains unchanged.
      */
 
     const gid_t gid = getgid();
@@ -1305,32 +1343,15 @@ drop_privileges()
         die("Unexpected filesystem uid %d", fsuid);
 
     if (uid) {
-       if (!setreuid(-1, 0) || !setregid(-1, 0))
-           die("Unexpected privilege escalation");
+        errno = 0;
+        if (!setreuid(-1, 0) || !setregid(-1, 0) ||
+                !setreuid(0, -1) || !setregid(0, -1))
+            die("Unexpected privilege escalation");
     }
 
-    /* Drop CAP_SYS_ADMIN capability from the permitted capabilities
-     * of the process.
-     */
-
-    cap_t capSet = cap_get_proc();
-    if (!capSet)
-        die("Unable to query process capabilities");
-
-    cap_value_t clearCaps[] = { CAP_SYS_ADMIN };
-    cap_flag_t capSets[] = { CAP_EFFECTIVE, CAP_PERMITTED };
-
-    for (unsigned cx = 0; cx < ARRAYSIZE(capSets); ++cx) {
-        if (cap_set_flag(
-                    capSet, capSets[cx],
-                    ARRAYSIZE(clearCaps), clearCaps, CAP_CLEAR))
-            die("Unable to clear process CAP_SYS_ADMIN");
-    }
-
-    if (cap_set_proc(capSet))
-        die("Unable to configure process capabilities");
-
-    cap_free(capSet);
+    errno = 0;
+    if (!unshare(CLONE_NEWPID))
+        die("Unexpected unshare privilege escalation");
 
     /* Now that privileges have been dropped, allow user core dumps which
      * have the side-effect of reconfiguring the ownership of /proc/pid.
