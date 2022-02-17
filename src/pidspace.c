@@ -1244,25 +1244,33 @@ run_init_pid1(int aChildFd, pid_t aChildPid, int aTtyFd)
 static void
 drop_privileges()
 {
-    /* Drop privileges, but not capabilities, after PDEATHSIG is configured.
+    /* Drop privileges, but not capabilities, after PDEATHSIG is configured,
+     * by forcing real, effective, and saved uids and gids to match the values
+     * of the user invoking the process.
+     *
+     * The supplementary group list inherited by the process remains unchanged.
+     *
      * This is important to allow an unprivileged kill(2) to deliver a
      * signal to this process running as pid 1.
      */
 
     gid_t gid = getgid();
-    gid_t uid = getuid();
+    uid_t uid = getuid();
 
-    if ((setfsgid(uid), setfsgid(-1)) != gid)
-        die("Unable to set filesystem gid");
-
-    if ((setfsuid(uid), setfsuid(-1)) != uid)
-        die("Unable to set filesystem uid");
-
-    if (setgid(gid))
+    if (setresgid(gid, gid, gid))
         die("Unable to set gid");
 
-    if (setuid(uid))
+    if (setresuid(uid, uid, uid))
         die("Unable to set uid");
+
+    gid_t fsgid = setfsgid(-1);
+    uid_t fsuid = setfsuid(-1);
+
+    if (fsgid != gid)
+        die("Unexpected filesystem gid %d", fsgid);
+
+    if (fsuid != uid)
+        die("Unexpected filesystem uid %d", fsuid);
 
     /* Now that privileges have been dropped, allow user core dumps which
      * have the side-effect of reconfiguring the ownership of /proc/pid.
