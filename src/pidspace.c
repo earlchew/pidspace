@@ -1252,11 +1252,11 @@ drop_privileges()
     gid_t gid = getgid();
     gid_t uid = getuid();
 
-    if (uid != (setfsuid(uid), setfsuid(-1)))
-        die("Unable to set filesystem uid");
-
-    if (gid != (setfsgid(uid), setfsgid(-1)))
+    if ((setfsgid(uid), setfsgid(-1)) != gid)
         die("Unable to set filesystem gid");
+
+    if ((setfsuid(uid), setfsuid(-1)) != uid)
+        die("Unable to set filesystem uid");
 
     if (setgid(gid))
         die("Unable to set gid");
