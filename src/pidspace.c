@@ -27,8 +27,10 @@
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <ctype.h>
 #include <err.h>
 #include <errno.h>
+#include <getopt.h>
 #include <poll.h>
 #include <pwd.h>
 #include <sched.h>
@@ -149,6 +151,12 @@ die(const char *aFmt, ...)
 
 /* -------------------------------------------------------------------------- */
 static int sDebug;
+
+static struct option sOptions[] = {
+   { "debug", no_argument, 0, 'd' },
+};
+
+/* -------------------------------------------------------------------------- */
 static struct timespec sEpoch;
 
 static void
@@ -319,20 +327,26 @@ privileged(struct Service *aService, int argc, char **argv)
      *   - argv[argc] shall be a null pointer.
      */
 
-    char **argp = &argv[argc ? 1 : 0];
+    while (1) {
+        int opt = getopt_long(argc, argv, "+d", sOptions, 0);
+        if (-1 == opt)
+            break;
 
-    if (*argp && !strcmp(*argp, "--debug")) {
-        sDebug = 1;
-        ++argp;
+        switch (opt) {
+        case '?':
+            usage();
+            break;
+
+        case 'd':
+            sDebug =1;
+            break;
+        }
     }
 
-    if (*argp && !strcmp(*argp, "--"))
-        ++argp;
-
-    if (!*argp)
+    if (optind >= argc)
         usage();
 
-    aService->mChild.mCmd = argp;
+    aService->mChild.mCmd = &argv[optind];
 
     /* Use of CLONE_NEWPID, CLONE_NEWNS, and mount(2), require that the caller
      * be privileged, or have CAP_SYSADMIN capability.
