@@ -1,0 +1,142 @@
+.TH PIDSPACE 1 "Jan 2022" "pidspace" "User Commands"
+.SH NAME
+pidspace \- run a program in a new pid namespace
+.SH SYNOPSIS
+.B pidspace
+[options]
+[--]
+.I program
+.RI [ arguments ]
+.SH DESCRIPTION
+Run an unprivileged program in a new pid namespace, and return its exit
+code or termination status to the parent namespace.
+.PP
+In comparison to
+.BR unshare (1),
+.BR pidspace
+is a privileged helper in the manner of
+.BR bwrap (1).
+.BR pidspace
+will propagate termination signals into the new pid namespace,
+allowing it to be used with process supervisors (eg
+.BR runit (8),
+.BR s6-svc (8),
+etc). Additionally,
+.BR pidspace
+will propagate job control signals, and configure the
+foreground process group on the controlling terminal,
+allowing it to be used in interactive scenarios.
+.PP
+The fate of all the processes in the new pid namespace is
+tied to both the first process in the new pid namespace, and
+its parent running in the parent namespace. Termination of
+either will cause all processes in the new pid namespace to
+be killed.
+.PP
+Normally the processes in the new pid namespace will exit
+cleanly, and the exit code will be returned to the parent
+process, which in turn will exit with the same code. If
+instead the processes terminate because of a signal, the parent
+process will terminate with the same signal.
+.SH OPTIONS
+.TP
+.B \-\-debug
+Emit debugging output.
+.SH NOTES
+.BR pidspace
+creates a new pid namespace, and also a new mount namespace
+.BR proc (7).
+to support the new pids. Within the mount namespace,
+.IR /proc
+is marked
+.BR MS_PRIVATE
+to avoid affecting the parent namespace, but the configuration
+of all other mount points remain unaltered.
+.PP
+.BR pidspace
+comprises three processes: two within the new pid namespace,
+and one in the parent namespace. The grandchild runs
+within the new pid namespace, and executes the program
+as process pid 2 and pgid 2.
+.PP
+A child also runs in the new pid namespace, as pid 1 and
+pgid 1, and is responsible to propagate signals received from the
+parent namespace, and also to reap orphaned processes
+within the pid namespace.
+.PP
+A parent remains in the parent namespace, and is responsible
+to propagate signals to the new child pid namespace, and also
+return the exit code, or termination status.
+.SH INTERACTIVE SCENARIOS
+The most common case is when
+.BR pidspace
+is not a session leader but say running as part of an interacive
+login session. All processes remain in the initial session, and
+thus remain associated with the same control terminal.
+While this allows job control signals to be delivered to the
+command, it has the side-effect of causing
+.BR getsid (2)
+to return zero for processes in the new pid namespae.
+For example, this is also visible in the output of
+.BR ps (1):
+.PP
+.EX
+% pidspace ps wwwaxjf
+   PPID PID PGID SID TTY   TPGID STAT  UID  COMMAND
+      0   1    1   0 pts/4     2 S    1000  pidspace ps wwwaxjf
+      1   2    2   0 pts/4     2 R+   1000  ps wwwaxjf
+.EE
+.PP
+Since it is uncommon to manipulate process sessions during
+interactive sessions, this side-effect should be relatively benign.
+.SH SERVICE SCENARIOS
+Supervisors like
+.BR s6-svc (8)
+sometimes run their services in a separate session.
+When
+.BR pidspace
+is run as session leader, a new session is created
+in the new pid namespace and the program is configured
+to be a session leader.
+.PP
+Scenarios requiring this can also use
+.BR setsid (1)
+to start
+.BR pidspace
+in a new session which causes a new session to be created
+in the new pid namespace:
+.PP
+.EX
+% setsid --wait pidspace ps wwwaxjf
+   PPID PID PGID SID TTY TPGID STAT  UID  COMMAND
+      0   1    1   0 ?      -1 S    1000  pidspace ps wwwaxjf
+      1   2    2   2 ?      -1 Rs   1000  ps wwwaxjf
+.EE
+.SH EXAMPLES
+Run an interactive program in another pid namespace:
+.sp
+.B "    pidspace -- vi test.c &"
+.br
+.B "    fg"
+.PP
+Configure a supervised service for
+.BR s6-svc (1)
+using the following
+.B ./run
+script:
+.sp
+.B "    #!/bin/sh"
+.br
+.B "    exec pidspace -- exim >&2"
+.PP
+.SH AUTHORS
+.MT earl_chew@yahoo.com
+Earl Chew
+.ME
+.SH SEE ALSO
+.BR unshare (1),
+.BR bwrap (1),
+.BR pid_namespaces (7),
+.BR mount_namespaces (7),
+.BR bwrap (8),
+.BR s6-svc (8)
