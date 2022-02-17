@@ -1299,6 +1299,22 @@ drop_privileges()
            die("Unexpected privilege escalation");
     }
 
+    /* Drop CAP_SYS_ADMIN capability from the permitted capabilities
+     * of the process.
+     */
+
+    cap_t capSet = cap_get_proc();
+    if (!capSet)
+        die("Unable to query process capabilities");
+
+    if (cap_set_flag(capSet, CAP_SYS_ADMIN, CAP_PERMITTED, CAP_CLEAR))
+        die("Unable to clear process CAP_SYS_ADMIN");
+
+    if (cap_set_proc(&capSet))
+        die("Unable to configure process capabilities");
+
+    cap_free(capSet);
+
     /* Now that privileges have been dropped, allow user core dumps which
      * have the side-effect of reconfiguring the ownership of /proc/pid.
      */
