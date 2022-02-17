@@ -38,20 +38,27 @@ ps_pidspace()
 
 exec_pidspace()
 {
+    local CMD=$PIDSPACE
     local EXEC=
-    if [ $# -ge 1 ] ; then
-        if [ x"$1" = x"--exec" ] ; then
-            shift
-        elif [ x"$1" = x"--sudo" ] ; then
-            shift
-            EXEC='sudo'
-        elif [ x"$1" = x"--setsid" ] ; then
-            shift
-            EXEC='setsid --wait'
-        fi
-    fi
 
-    exec $EXEC "$PIDSPACE" --debug "$@"
+    while [ $# -ge 1 ] ; do
+        if [ x"$1" = x"--no-setsid" ] ; then
+            shift
+        elif [ x"$1" = x"--setsid" ] ; then
+            EXEC='setsid --wait'
+            shift
+        elif [ x"$1" = x"--chain" ] ; then
+            EXEC=$2
+            shift 2
+        elif [ x"$1" = x"--cmd" ] ; then
+            CMD=$2
+            shift 2
+        else
+            break
+        fi
+    done
+
+    exec $EXEC "$CMD" --debug "$@"
 }
 
 test_pidspace_hierarchy()
@@ -135,7 +142,7 @@ test_pidspace_securefds()
 {
     (
       exec <&- >&- 2>&-
-      exec_pidspace --sudo -- sh -c "exec sleep 59 || :"
+      exec_pidspace --chain sudo -- sh -c "exec sleep 59 || :"
     ) &
     local GRANDCHILD=
     while [ -z "$GRANDCHILD" ] ; do
@@ -152,6 +159,34 @@ test_pidspace_securefds()
     expect 1 = "$(say "$GRANDCHILDFDS" | awk '/ 1 -> .dev.null$/' | wc -l)"
     expect 1 = "$(say "$GRANDCHILDFDS" | awk '/ 2 -> .dev.null$/' | wc -l)"
     expect 3 = "$(say "$GRANDCHILDFDS" | wc -l)"
+}
+
+test_pidspace_sys_admin()
+{
+    (
+      local CHAIN="--"
+      CHAIN="--reuid $(id -u) --regid $(id -g) --init-groups $CHAIN"
+      CHAIN="--ambient-caps +sys_admin --inh +sys_admin $CHAIN"
+      CHAIN="sudo setpriv $CHAIN"
+
+      set -- sh -c "exec sleep 59 || :"
+      exec_pidspace --cmd ./pidspace --chain "$CHAIN" -- "$@"
+    ) &
+    local GRANDCHILD=
+    while [ -z "$GRANDCHILD" ] ; do
+        GRANDCHILD=$(ps_pidspace | awk '/ 59$/ {print $2}')
+    done
+
+    local PRIVILEGES
+    PRIVILEGES=$(cat /proc/$GRANDCHILD/status | grep '^Cap')
+
+    sudo kill "$GRANDCHILD" || :
+    wait $! || :
+
+    expect -n "$(
+        say "$PRIVILEGES" | awk '$1 == "CapEff:" && $2 ~ /^00*$/')"
+    expect -n "$(
+        say "$PRIVILEGES" | awk '$1 == "CapPrm:" && $2 ~ /^00*$/')"
 }
 
 test_pidspace_orphan_children_early()
@@ -368,11 +403,13 @@ run_tests()
     run test_pidspace_orphaned
 
     run test_pidspace_hierarchy
-    run test_pidspace_devnull --exec
+    run test_pidspace_devnull --no-setsid
     run test_pidspace_devnull --setsid
 
-    [ -n "${OPT_NO_ROOT++}" ] ||
+    [ -n "${OPT_NO_ROOT++}" ] || {
       run test_pidspace_securefds
+      run test_pidspace_sys_admin
+    }
 
     run test_pidspace_orphan_children_early
     run test_pidspace_orphan_children_late
