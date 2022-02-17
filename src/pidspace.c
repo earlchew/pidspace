@@ -151,9 +151,11 @@ die(const char *aFmt, ...)
 
 /* -------------------------------------------------------------------------- */
 static int sDebug;
+static long sPPid;
 
 static struct option sOptions[] = {
-   { "debug", no_argument, 0, 'd' },
+   { "debug", no_argument,       0,  'd' },
+   { "ppid",  required_argument, 0,  'P' },
 };
 
 /* -------------------------------------------------------------------------- */
@@ -217,9 +219,38 @@ usage(void)
 {
     fprintf(
         stderr,
-        "usage: %s [--debug] -- cmd ...\n",
+        "usage: %s [--debug] [--ppid PPID] -- cmd ...\n",
         program_invocation_short_name);
     die(0);
+}
+
+/* -------------------------------------------------------------------------- */
+static long
+strtowhole(const char *aString)
+{
+    int rc = -1;
+
+    long number = 0;
+
+    if (isdigit((unsigned char) *aString)) {
+
+        char *endPtr;
+
+        errno = 0;
+        number = strtol(aString, &endPtr, 10);
+
+        if ('0' == *aString) {
+            const char *lastPtr = endPtr;
+
+            if (1 != lastPtr - aString)
+                errno = EINVAL;
+        }
+
+        if (!*endPtr && !errno)
+            rc = 0;
+    }
+
+    return rc ? -1 : number;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -328,7 +359,7 @@ privileged(struct Service *aService, int argc, char **argv)
      */
 
     while (1) {
-        int opt = getopt_long(argc, argv, "+d", sOptions, 0);
+        int opt = getopt_long(argc, argv, "+dP:", sOptions, 0);
         if (-1 == opt)
             break;
 
@@ -340,6 +371,20 @@ privileged(struct Service *aService, int argc, char **argv)
         case 'd':
             sDebug =1;
             break;
+
+        case 'P':
+            {
+                sPPid = strtowhole(optarg);
+
+                pid_t ppid = sPPid;
+
+                if (-1 == sPPid || ppid != sPPid)
+                    die("Unable to parse parent pid %s", optarg);
+
+                if (!sPPid)
+                    die("Invalid parent pid %s", optarg);
+                break;
+            }
         }
     }
 
@@ -1251,6 +1296,15 @@ verify_unprivileged_role()
 static int
 run_parent(struct Tty *aTty, struct Parent *aParent)
 {
+    /* If there is a pid to match with getppid(2), then tie its fate
+     * together with the parent.
+     */
+
+    if (-1 != sPPid) {
+        DEBUG("Checking parent pid %ld", sPPid);
+        pdeathsig(sPPid);
+    }
+
     /* Avoid holding references to stdin and stdout, leaving only
      * the grandchild to hold references.
      */
