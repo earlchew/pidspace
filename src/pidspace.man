@@ -42,6 +42,12 @@ process will terminate with the same signal.
 .TP
 .B \-\-debug
 Emit debugging output.
+.TP
+.BI \-\-ppid PPID
+Tie the fate of the process hierarchy to the parent pid of the
+process in the parent namespace. In the absence of this option
+the process hierarchy will be reparented should it become
+orphaned in the parent namespace.
 .SH NOTES
 .BR pidspace
 creates a new pid namespace, and also a new mount namespace
